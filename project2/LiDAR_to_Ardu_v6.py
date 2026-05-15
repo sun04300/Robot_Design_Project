@@ -47,7 +47,7 @@ while True:
     # 거리 계산
     distance_q2 = (data[3] | (data[4] << 8))
     distance = distance_q2 / 4.0  # 거리mm
-    if distance < 50:  # 거리가 너무 짧은 경우 노이즈로 간주하고 무시
+    if distance < 80:  # 거리가 너무 짧은 경우 노이즈로 간주하고 무시
         continue  
 
         
@@ -129,12 +129,12 @@ while True:
         elif front_min <= EMERGENCY or left_min <= EMERGENCY or right_min <= EMERGENCY:
             back_cnt += 1
             if back_cnt >= 6:
-                ser_Ardu.write(b"B 0.80\n")
+                ser_Ardu.write(b"B 0.90\n")
                 extra_back = 3          # 이번 포함 총 3사이클 = 기본의 3배
                 back_cnt   = 0
                 print(f"EXTENDED_BACK 시작! (3x) → back_cnt 초기화")
             else:
-                ser_Ardu.write(b"B 0.80\n")
+                ser_Ardu.write(b"B 0.90\n")
                 print(f"EMERGENCY! F:{front_min:.0f} L:{left_min:.0f} R:{right_min:.0f}mm → BACKWARD ({back_cnt}/6)")
             
 
