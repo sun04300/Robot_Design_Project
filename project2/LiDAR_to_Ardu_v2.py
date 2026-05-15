@@ -63,7 +63,7 @@ while True:
         right_cnt  = 0         # 오른쪽 구역 유효 포인트 수
         MIN_COUNT  = 4         # 최소 포인트 수 (미만이면 노이즈로 무시)
         EMERGENCY  = 140.0     # 즉시 후진 거리 (mm) — 여유 확보
-        DETECT     = 210.0     # 장애물 감지 거리 (mm)
+        DETECT     = 205.0     # 장애물 감지 거리 (mm)
         
         def _cleanup():
             try:
@@ -93,12 +93,12 @@ while True:
             front_cnt += 1
 
     # 오른쪽 구역 (CW 기준: 0°=앞, 90°=우 → 40~90°)
-    elif (angle > 40 and angle < 90) and distance <= 210:
+    elif (angle > 40 and angle < 90) and distance <= 195:
         right_min = min(right_min, distance)
         right_cnt += 1
 
     # 왼쪽 구역 (CW 기준: 270°=좌 → 270~320°)
-    elif (angle > 270 and angle < 320) and distance <= 210:
+    elif (angle > 270 and angle < 320) and distance <= 195:
         left_min = min(left_min, distance)
         left_cnt += 1
 
