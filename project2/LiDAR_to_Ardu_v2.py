@@ -8,6 +8,14 @@ baudrate_Ardu = 460800 # 보드레이트 적용
 ser_L = serial.Serial(port_L, baudrate_L, timeout=1) # LiDAR 시리얼 포트와 보드레이트 설정 -> 460800 bps
 ser_Ardu = serial.Serial(port_Ardu, baudrate_Ardu, timeout=1) # 라즈베리파이의 시리얼 포트와 보드레이트 설정 -> 115200 bps
 
+def wait_for_start():
+    print("\n[준비 완료] S + Enter 를 누르면 시작합니다.")
+    while True:
+        key = input().strip().lower()
+        if key == 's':
+            print("\n[START] 스캔 시작\n")
+            break
+
 # RESET 요청 패킷 전송 (0xA5 0x40)
 scan_request = bytes([0xA5, 0x40])
 ser_L.write(scan_request)
@@ -16,6 +24,8 @@ time.sleep(1) # 1초 동안 멈춤 (초기화 시간 확보)
 # SCAN 요청 패킷 전송 (0xA5 0x20)
 scan_request = bytes([0xA5, 0x20])
 ser_L.write(scan_request)
+
+wait_for_start()
 
 # 응답 데이터 읽기
 while True:
