@@ -7,7 +7,7 @@ PORT_L           = "/dev/ttyUSB0"
 PORT_ARDU        = "/dev/ttyS0"
 EMERGENCY        = 140.0   # 즉시 후진 거리 (mm)
 DETECT           = 350.0   # 일반 장애물 감지 거리 (mm)
-CORNER_DIST      = 200.0   # 구석 판별 기준 거리 (mm) ← 여기서 조정
+CORNER_DIST      = 220.0   # 구석 판별 기준 거리 (mm) ← 여기서 조정
 MIN_BLOCKED      = 4       # 구석 판별 최소 막힌 섹터 수
 NUM_SECTORS      = 8       # 360° 분할 수
 SECTOR_SIZE      = 360.0 / NUM_SECTORS   # 45°
@@ -102,7 +102,7 @@ def calc_escape_cycles(pending_angle: float) -> int:
     탈출 회전 사이클 수 계산.
     MIN_ESCAPE_ANGLE 보장: 계산 각도가 작아도 최소한 MIN_ESCAPE_ANGLE 만큼은 회전.
     """
-    eff_angle = max(MIN_ESCAPE_ANGLE, pending_angle)
+    eff_angle = max(MIN_ESCAPE_ANGLE, pending_angle) # 최소 탈출 각도 보장
     return max(1, int(eff_angle / DEG_PER_CYCLE))
 
 
@@ -223,9 +223,10 @@ while True:
 
         # ── P1: 탈출 회전 진행 중 ─────────────────────────────────────
         if escape_left > 0:
-            send_cmd(ser_Ardu, f"T {escape_steer:.2f}\n".encode())
+            send_cmd(ser_Ardu, f"T {escape_steer:.2f}\n".encode()) # 아두이노로 회전 명령 전송
             escape_left -= 1
             print(f"ESCAPE_ROTATE  steer={escape_steer:+.2f}  잔여={escape_left}사이클")
+            # 회전 사이클이 남아있는 동안은 다른 판단 없이 계속 회전 명령 전송
 
         # ── P2: 후진 진행 중 ──────────────────────────────────────────
         elif extra_back > 0:
@@ -248,7 +249,9 @@ while True:
             send_cmd(ser_Ardu, b"B 0.90\n")
 
             blocked_cnt = sum(1 for avg in sector_avg if avg <= CORNER_DIST)
+            # 탈출 각도 계산 시 MIN_ESCAPE_ANGLE 보장 (너무 작은 각도로 회전하는 상황 방지)
             eff         = max(MIN_ESCAPE_ANGLE, pending_angle)
+            # 로그 출력 시 각도와 사이클 수 명확히 표시
             print(f"CORNER!  {blocked_cnt}/{NUM_SECTORS}섹터가 {CORNER_DIST:.0f}mm 이내")
             print(f"  → 최적섹터={b_idx}({b_center:.0f}°)  avg={b_avg:.0f}mm  "
                   f"회전={'R' if escape_steer<0 else 'L'}  "
