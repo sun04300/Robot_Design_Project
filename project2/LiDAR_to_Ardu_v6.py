@@ -130,7 +130,7 @@ while True:
             back_cnt += 1
             if back_cnt >= 6:
                 ser_Ardu.write(b"B 0.80\n")
-                extra_back = 2          # 이번 포함 총 3사이클 = 기본의 3배
+                extra_back = 3          # 이번 포함 총 3사이클 = 기본의 3배
                 back_cnt   = 0
                 print(f"EXTENDED_BACK 시작! (3x) → back_cnt 초기화")
             else:
