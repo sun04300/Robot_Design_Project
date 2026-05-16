@@ -65,7 +65,7 @@ print("주행 진짜 시작!")
 BIN_DEG      = 5.0
 N_BINS       = int(360 / BIN_DEG)
 ROBOT_WIDTH  = 200.0
-GAP_MARGIN   = 10.0
+GAP_MARGIN   = 60.0
 GAP_MIN_PASS = ROBOT_WIDTH + GAP_MARGIN
 DETECT       = 330.0
 EMERGENCY    = 140.0
@@ -77,11 +77,11 @@ ESCAPE_HOLD_CYCLES = 6
 DIR_BONUS_WEIGHT   = 30.0
 
 # ── 신규: 코너 진입 안정화 파라미터 (v3c4) ─────────────────────────
-FWD_CLEAR_ARC      = 20.0     # 정면 안전 확인 호 반각 (°)
+FWD_CLEAR_ARC      = 30.0     # 정면 안전 확인 호 반각 (°)
 FWD_CLEAR_DIST     = 430.0    # 이 거리 이상 트이면 직진 우선 (mm)
 STEER_DEADZONE_DEG = 12.0     # 갭 중심 |°| 이 이하면 조향 0
 CENTER_BONUS_DEG   = 25.0     # 정면 갭 보너스 인정 범위 (°)
-CENTER_BONUS_W     = 40.0     # 정면 갭 보너스 강도 (mm 환산)
+CENTER_BONUS_W     = 50.0     # 정면 갭 보너스 강도 (mm 환산)
 
 STEER_ALPHA        = 0.6      # 조향 저역통과 (0=완전평활, 1=즉시반응)
 
@@ -259,10 +259,13 @@ while True:
                 escape_dir = 0.0
                 print("DIR_MEMORY 해제 → 방향 자유")
 
-        if not any(has_pt):
-            # 장애물 없음 → 직진
+        # 메인 루프에서, 직진 가드를 이렇게 바꾸기
+        blocked_now = [has_pt[i] and hist[i] <= DETECT for i in range(N_BINS)]
+        if not any(blocked_now):
             ser_Ardu.write(b"F 0.00 0.70\n")
-            steer_prev = 0.0   # [v3c4] 평활 상태 리셋
+            steer_prev = 0.0
+            scan_buf = []
+            continue
 
         else:
             gaps = find_vfh_gaps(hist, has_pt, DETECT, GAP_MIN_PASS)
@@ -362,7 +365,7 @@ while True:
                       f"dir_mem={escape_dir:+.0f}({escape_hold})")
 
             # ── P4: VFH 제자리 회전 ──────────────────────────────────
-            elif best is not None 및 best['passable']:
+            elif best is not None and best['passable']:
                 rot_dir = 1.0 if best['center'] > 0 else -1.0
 
                 if rot_dir != escape_dir:
