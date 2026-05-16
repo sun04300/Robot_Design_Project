@@ -30,30 +30,32 @@ SAFETY_MARGIN = 30.0         # mm
 PATH_HALF_WIDTH = CAR_HALF_WIDTH + SAFETY_MARGIN  # 150mm
 
 # 현재 진행 경로 검사
-PATH_CHECK_DIST = 350.0      # 앞쪽 45cm까지 검사
+PATH_CHECK_DIST = 450.0      # 앞쪽 45cm까지 검사
 PATH_DANGER_DIST = 300.0     # 30cm 이내면 회피 시작
-PATH_BLOCK_POINTS = 4
+PATH_BLOCK_POINTS = 3
 
 # 좌우 여유공간 검사
-SIDE_CHECK_DIST = 550.0
-SIDE_MAX_SCORE_DIST = 650.0
+SIDE_CHECK_DIST = 350.0
+SIDE_MAX_SCORE_DIST = 420.0
 
 # 진짜 막힘 판단
-STUCK_FRONT_DIST = 170.0
+STUCK_FRONT_DIST = 220.0
 STUCK_POINTS = 6
 
 # 속도
-NORMAL_SPEED = 0.42
-AVOID_SPEED = 0.30
-BACK_SPEED = 0.35
-ESCAPE_SPEED = 0.30
+NORMAL_SPEED = 0.58
+AVOID_SPEED = 0.43
+BACK_SPEED = 0.42
+ESCAPE_SPEED = 0.43
 
 # 조향
-AVOID_STEER = 0.52=--
-ESCAPE_STEER = 0.50
+AVOID_STEER = 0.55
+ESCAPE_STEER = 0.65
+
+STEER_SIGN = -1
 
 # 조향 smoothing
-SMOOTH = 0.45
+SMOOTH = 0.40
 prev_steer = 0.0
 
 # 상태
@@ -67,7 +69,7 @@ back_count = 0
 escape_count = 0
 escape_dir = 0
 
-BACK_CYCLES = 2
+BACK_CYCLES = 4
 ESCAPE_CYCLES = 6
 
 
@@ -244,14 +246,14 @@ while True:
     # --------------------------------------------------------
     # 1) 차폭 안 현재 진행 경로 검사
     # --------------------------------------------------------
-    if 0 < x < PATH_CHECK_DIST 및 abs(y) < PATH_HALF_WIDTH:
+    if 0 < x < PATH_CHECK_DIST and abs(y) < PATH_HALF_WIDTH:
         path_cnt += 1
         path_min = min(path_min, x)
 
     # --------------------------------------------------------
     # 2) 진짜 막힘 판단용: 매우 가까운 정면 점
     # --------------------------------------------------------
-    if 0 < x < STUCK_FRONT_DIST 및 abs(y) < PATH_HALF_WIDTH:
+    if 0 < x < STUCK_FRONT_DIST and abs(y) < PATH_HALF_WIDTH:
         front_close_cnt += 1
         front_min = min(front_min, x)
 
@@ -272,15 +274,15 @@ while True:
     # --------------------------------------------------------
     # 한 바퀴 스캔 완료 시 판단
     # --------------------------------------------------------
-    if s_flag == 1 및 len(scan_buf) > 15:
+    if s_flag == 1 and len(scan_buf) > 15:
 
         path_blocked = (
-            path_cnt >= PATH_BLOCK_POINTS 및
+            path_cnt >= PATH_BLOCK_POINTS and
             path_min < PATH_DANGER_DIST
         )
 
         stuck = (
-            front_close_cnt >= STUCK_POINTS 및
+            front_close_cnt >= STUCK_POINTS and
             front_min < STUCK_FRONT_DIST
         )
 
@@ -304,7 +306,7 @@ while True:
                 escape_count = ESCAPE_CYCLES
 
         elif mode == MODE_ESCAPE:
-            send_forward(ESCAPE_STEER * escape_dir, ESCAPE_SPEED)
+            send_forward(STEER_SIGN*ESCAPE_STEER * escape_dir, ESCAPE_SPEED)
             escape_count -= 1
 
             print(
@@ -338,7 +340,7 @@ while True:
 
             elif path_blocked:
                 steer = AVOID_STEER * wider_dir
-                send_forward(steer, AVOID_SPEED)
+                send_forward(STEER_SIGN*steer, AVOID_SPEED)
 
                 print(
                     f"PATH_BLOCKED → AVOID "
