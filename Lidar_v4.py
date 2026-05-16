@@ -34,8 +34,8 @@ N_BINS       = int(360 / BIN_DEG)
 ROBOT_WIDTH  = 200.0
 GAP_MARGIN   = 10.0
 GAP_MIN_PASS = ROBOT_WIDTH + GAP_MARGIN
-DETECT       = 550.0
-EMERGENCY    = 135.0
+DETECT       = 330.0
+EMERGENCY    = 140.0
 MAX_STEER    = 0.85
 ROT_THRESH   = 75.0
 
@@ -45,7 +45,7 @@ DIR_BONUS_WEIGHT   = 30.0
 
 # ── 신규: 코너 진입 안정화 파라미터 (v3c4) ─────────────────────────
 FWD_CLEAR_ARC      = 20.0     # 정면 안전 확인 호 반각 (°)
-FWD_CLEAR_DIST     = 700.0    # 이 거리 이상 트이면 직진 우선 (mm)
+FWD_CLEAR_DIST     = 430.0    # 이 거리 이상 트이면 직진 우선 (mm)
 STEER_DEADZONE_DEG = 12.0     # 갭 중심 |°| 이 이하면 조향 0
 CENTER_BONUS_DEG   = 25.0     # 정면 갭 보너스 인정 범위 (°)
 CENTER_BONUS_W     = 40.0     # 정면 갭 보너스 강도 (mm 환산)
@@ -54,7 +54,7 @@ STEER_ALPHA        = 0.6      # 조향 저역통과 (0=완전평활, 1=즉시반
 
 SIDE_BRAKE_ARC     = 20.0     # 측면 검사 호 반각 (°)
 SIDE_BRAKE_CENTERS = (60.0, 300.0)  # (우전측, 좌전측) CW 각도
-SIDE_BRAKE_DIST    = 220.0    # 이 이하면 감속 (mm)
+SIDE_BRAKE_DIST    = 210.0    # 이 이하면 감속 (mm)
 SIDE_BRAKE_FACTOR  = 0.55     # 감속 배율
 
 
@@ -165,7 +165,7 @@ while True:
     quality  = data[0] >> 2
     angle    = ((data[1] >> 1) | (data[2] << 7)) / 64.0
     distance = (data[3] | (data[4] << 8)) / 4.0
-    if distance < 80:
+    if distance < 50.0:
         continue
 
     # ── 1회성 초기화 ──────────────────────────────────────────────────
@@ -268,7 +268,7 @@ while True:
                     print(f"EMERGENCY! 근접={emg_near:.0f}mm ({emg_cnt}/6)")
 
             # ── P3: VFH 전진 회피 [v3c4 핵심 수정] ─────────────────────
-            elif best is not None 및 best['passable'] 및 abs(best['center']) <= ROT_THRESH:
+            elif best is not None and best['passable'] and abs(best['center']) <= ROT_THRESH:
 
                 # ① 정면 클리어런스 확인
                 fwd_clear = nearest_in_arc(hist, has_pt, 0.0,
@@ -300,7 +300,7 @@ while True:
 
                 # ④ 속도 결정 (전방 근접 → 감속)
                 ratio = min(max((DETECT - near_d) / (DETECT - EMERGENCY), 0.0), 1.0)
-                speed = 0.70 * (1.0 - ratio * 0.55)
+                speed = 0.70 * (1.0 - ratio * 0.7)
 
                 # ⑤ 측면 근접 감속 (코너 내벽 클리핑 완화)
                 side_min = 9999.0
@@ -329,7 +329,7 @@ while True:
                       f"dir_mem={escape_dir:+.0f}({escape_hold})")
 
             # ── P4: VFH 제자리 회전 ──────────────────────────────────
-            elif best is not None 및 best['passable']:
+            elif best is not None and best['passable']:
                 rot_dir = 1.0 if best['center'] > 0 else -1.0
 
                 if rot_dir != escape_dir:
@@ -347,7 +347,7 @@ while True:
             # ── P5: 통과 가능한 갭 없음 → 후진 ───────────────────────
             else:
                 no_gap_cnt += 1
-                ser_Ardu.write(b"B 0.90\n")
+                ser_Ardu.write(b"B 0.70\n")
                 steer_prev = 0.0
                 widest = max((g['width'] for g in gaps), default=0.0)
                 print(f"VFH_BACK  통과 갭 없음 "
