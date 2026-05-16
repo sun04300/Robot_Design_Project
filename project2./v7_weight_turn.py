@@ -14,13 +14,7 @@ ser_L.write(bytes([0xA5, 0x20]))
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  VFH + Wall-Following  (후진 없음)
-#
-#  [변경 사항 vs v6]
-#    [C] DETECT 500→750mm, EMERGENCY 135→160mm, ROT_THRESH 75→90도
-#        → 더 일찍 반응해 긴급 상황 자체를 줄임
-#    [B] wall_follow_dir() 추가
-#        → 긴급 상황·갭 없음 시 후진 대신 벽 접선 방향으로 전진
+#  VFH  (후진 없음)
 #
 #  [상태 흐름]
 #
@@ -28,14 +22,11 @@ ser_L.write(bytes([0xA5, 0x20]))
 #      1. 360° 히스토그램 구성
 #      2. 통과 가능 갭 탐색
 #      3. 명령 결정:
-#           긴급(전방 160mm 이내)
-#             벽 접선 방향이 열려 있음 → WALL_FOLLOW (저속 전진+조향)
-#             벽 접선도 막힘           → EMG_ROT     (가장 열린 방향 제자리 회전)
-#           +-90도 이내 통과 가능 갭   → VFH_FWD     (조향 전진)
-#           +-90도 초과 통과 가능 갭   → VFH_TURN    (급선회 전진)
-#           통과 가능 갭 없음          → NO_GAP_WF   (벽 접선 전진)
+#           +-ROT_THRESH 이내 통과 가능 갭  → VFH_FWD     (조향 전진)
+#           +-ROT_THRESH 초과 통과 가능 갭  → VFH_TURN    (급선회 전진)
+#           통과 가능 갭 없음               → NO_GAP_FWD  (전방 내 가장 열린 방향 조향)
 #
-#    ※ B(후진) 및 T(제자리 회전) 명령 불필요. F 명령만 사용.
+#    ※ F 명령만 사용.
 # ═══════════════════════════════════════════════════════════════════
 
 # ── 전역 파라미터 ─────────────────────────────────────────────────
@@ -99,7 +90,6 @@ def find_vfh_gaps(hist, has_pt, detect_dist, min_pass_mm):
                         'center_cw': center_cw,
                         'width'    : gap_w,
                         'passable' : gap_w >= min_pass_mm,
-                        'delta_deg': delta_deg,
                     })
             i = j
         else:
@@ -206,16 +196,9 @@ while True:
     scan_buf.append((angle, distance))
 
     # ── 1회전 완료 -> VFH 판단 ────────────────────────────
-    if s_flag == 1 and len(scan_buf) > 10:
-
-        hist, has_pt = build_polar_hist(scan_buf)
-        emg_near = nearest_in_arc(hist, has_pt, 0.0, arc_half=70)
-
-        # 완전 개방 -> 직진
-        if not any(has_pt):
-            ser_Ardu.write(b"F 0.00 0.70\n")
-
-        else:
+    if s_flag == 1:
+        if len(scan_buf) > 10:
+            hist, has_pt = build_polar_hist(scan_buf)
             gaps = find_vfh_gaps(hist, has_pt, DETECT, GAP_MIN_PASS)
             best = select_best_gap(gaps)
 
