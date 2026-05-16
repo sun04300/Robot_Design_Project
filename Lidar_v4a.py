@@ -247,7 +247,7 @@ while True:
     scan_buf.append((angle, distance))
 
     # ── 1 스캔 완료 → VFH 판단 ────────────────────────────────────────
-    if s_flag == 1 and len(scan_buf) > 15:
+    if s_flag == 1 and len(scan_buf) > 100:
 
         hist, has_pt = build_polar_hist(scan_buf)
         emg_near = nearest_in_arc(hist, has_pt, 0.0, arc_half=70)
@@ -345,8 +345,18 @@ while True:
                                         arc_half=int(SIDE_BRAKE_ARC))
                     if sd < side_min:
                         side_min = sd
+                
+                side_R = nearest_in_arc(hist, has_pt, 60.0,  arc_half=int(SIDE_BRAKE_ARC))
+                side_L = nearest_in_arc(hist, has_pt, 300.0, arc_half=int(SIDE_BRAKE_ARC))
+                side_min = min(side_R, side_L)
+                
                 if side_min < SIDE_BRAKE_DIST:
                     speed *= SIDE_BRAKE_FACTOR
+                    # 가까운 쪽 반대로 밀어내기
+                    if side_R < side_L:
+                        steer = max(-MAX_STEER, steer - 0.20)   # 좌측으로 보정
+                    else:
+                        steer = min( MAX_STEER, steer + 0.20)   # 우측으로 보정
                     mode_tag += "+SIDE"
 
                 # ⑥ 방향 메모리 갱신 (유의미한 조향일 때만)
