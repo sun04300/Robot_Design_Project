@@ -148,14 +148,14 @@ def select_best_gap(gaps):
     최적 갭 선택.
     통과 가능한 갭 우선, 동점 시 전방(0도)에 가깝고 넓은 것 선호.
 
-    점수 = 폭(mm) x 0.3 - |center|(도) x 1.0
-      -> 전방에서 1도 멀어질 때마다 폭 3.3mm의 이점이 상쇄됨.
+    점수 = 폭(mm) x 0.6 - |center|(도) x 1.5
+        -> 전방에서 1도 멀어질 때마다 폭 2.5mm의 이점이 상쇄됨.
     """
     if not gaps:
         return None
     passable = [g for g in gaps if g['passable']]
     pool     = passable if passable else gaps
-    return max(pool, key=lambda g: g['width'] * 0.3 - abs(g['center']) * 1.5)
+    return max(pool, key=lambda g: g['width'] * 0.6 - abs(g['center']) * 1.5)
 
 
 def nearest_in_arc(hist, has_pt, center_cw, arc_half=25):
@@ -289,5 +289,11 @@ while True:
                 ser_Ardu.write(f"F {steer:.2f} 0.20\n".encode())
                 print(f"NO_GAP  최대폭={widest:.0f}mm  steer={steer:+.2f}")
 
+    else:
+        # ── 회전 중간 패킷: 버퍼 초기화만 ─────────────────────
+        ser_Ardu.write(f"F 0.00 0.20\n".encode())
+        pass
+        # VFH 판단은 s_flag=1인 패킷에서만 수행 
+        # → 회전 중간 패킷에서는 버퍼 유지하거나 초기화 선택 가능
     # ── 버퍼 항상 초기화 ───────────────────────────────
     scan_buf = []
