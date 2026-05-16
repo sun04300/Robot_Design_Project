@@ -269,7 +269,7 @@ while True:
             escape_hold = DIR_HOLD
 
         ser_Ardu.write(f"F {steer:.2f} {speed:.2f}\n".encode())
-        if now - last_log > 0.2:
+        if 지금 - last_log > 0.2:
             print(f"FWD  갭@{best['center']:+.0f}°({best['width']:.0f})  front={front_d:.0f}  steer={steer:+.2f}")
             last_log = now
         continue
@@ -281,7 +281,7 @@ while True:
         escape_hold = DIR_HOLD
         steer_prev  = 0.0
         ser_Ardu.write(f"T {rot_dir:.2f}\n".encode())
-        if now - last_log > 0.2:
+        if 지금 - last_log > 0.2:
             print(f"ROT  갭@{best['center']:+.0f}°  폭={best['width']:.0f}")
             last_log = now
         continue
@@ -291,7 +291,7 @@ while True:
     steer_prev  = 0.0
     widest = max((g['width'] for g in gaps), default=0.0)
     ser_Ardu.write(b"B 0.70\n")
-    if now - last_log > 0.2:
+    if 지금 - last_log > 0.2:
         print(f"BACK  최대갭={widest:.0f} < {GAP_MIN_PASS:.0f}  ({no_gap_cnt})")
         last_log = now
     if no_gap_cnt >= 6:
