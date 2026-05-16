@@ -50,8 +50,8 @@ ser_L.write(bytes([0xA5, 0x20]))
 # ── 전역 파라미터 ─────────────────────────────────────────────────
 BIN_DEG      = 5.0               # 히스토그램 빈 해상도 (도)
 N_BINS       = int(360 / BIN_DEG)  # 72개 빈
-ROBOT_WIDTH  = 200.0             # 차량 폭 (mm)
-GAP_MARGIN   = 25.0              # 통과 안전 마진 (mm)
+ROBOT_WIDTH  = 180.0             # 차량 폭 (mm)
+GAP_MARGIN   = 10.0              # 통과 안전 마진 (mm)
 GAP_MIN_PASS = ROBOT_WIDTH + GAP_MARGIN   # 최소 통과 가능 폭: 230mm
 DETECT       = 550.0             # 감지 거리 (mm) — 이른 반응을 위해 확대
 EMERGENCY    = 135.0             # 즉시 대응 거리 (mm)
@@ -229,66 +229,65 @@ while True:
     scan_buf.append((angle, distance))
 
     # ── 1회전 완료 -> VFH 판단 ────────────────────────────
-    if s_flag == 1:
-        if len(scan_buf) > 15:
-            # ── VFH 분석 ────────────────────────────────────────
-            hist, has_pt = build_polar_hist(scan_buf)
-            emg_near = nearest_in_arc(hist, has_pt, 0.0, arc_half=70)
+    if s_flag == 1 and len(scan_buf) > 15:
+        # ── VFH 분석 ────────────────────────────────────────
+        hist, has_pt = build_polar_hist(scan_buf)
+        emg_near = nearest_in_arc(hist, has_pt, 0.0, arc_half=70)
 
-            if not any(has_pt):
-                ser_Ardu.write(b"F 0.00 0.70\n")
+        if not any(has_pt):
+            ser_Ardu.write(b"F 0.00 0.70\n")
 
-            else:
-                gaps = find_vfh_gaps(hist, has_pt, DETECT, GAP_MIN_PASS)
-                best = select_best_gap(gaps)
+        else:
+            gaps = find_vfh_gaps(hist, has_pt, DETECT, GAP_MIN_PASS)
+            best = select_best_gap(gaps)
 
-                # ── P1: 확장 후진 진행 중 ─────────────────────
-                if extra_back > 0:
+            # ── P1: 확장 후진 진행 중 ─────────────────────
+            if extra_back > 0:
+                ser_Ardu.write(b"B 0.80\n")
+                extra_back -= 1
+                print(f"EXTENDED_BACK 잔여 {extra_back}사이클")
+
+            # ── P2: 즉각 위험 + 전방 탈출 불가 -> 후진 ──
+            elif (emg_near <= EMERGENCY and
+                    (best is None or not best['passable'] or
+                    abs(best['center']) > ROT_THRESH)):
+                emg_cnt += 1
+                if emg_cnt >= 6:
                     ser_Ardu.write(b"B 0.80\n")
-                    extra_back -= 1
-                    print(f"EXTENDED_BACK 잔여 {extra_back}사이클")
-
-                # ── P2: 즉각 위험 + 전방 탈출 불가 -> 후진 ──
-                elif (emg_near <= EMERGENCY and
-                      (best is None or not best['passable'] or
-                       abs(best['center']) > ROT_THRESH)):
-                    emg_cnt += 1
-                    if emg_cnt >= 6:
-                        ser_Ardu.write(b"B 0.80\n")
-                        extra_back = 3
-                        emg_cnt    = 0
-                        print("EXTENDED_BACK 시작! (3x) [긴급]")
-                    else:
-                        ser_Ardu.write(b"B 0.80\n")
-                        print(f"EMERGENCY! 근접={emg_near:.0f}mm ({emg_cnt}/6)")
-
-                # ── P3: VFH 전진 — 갭이 전방 반구(+-ROT_THRESH) ─
-                elif best is not None and best['passable'] and abs(best['center']) <= ROT_THRESH:
-                    steer  = max(-MAX_STEER, min(MAX_STEER,
-                                 best['center'] / 90.0 * MAX_STEER))
-                    near_d = nearest_in_arc(hist, has_pt, best['center_cw'], arc_half=20)
-                    ratio  = min(max((DETECT - near_d) / (DETECT - EMERGENCY), 0.0), 1.0)
-                    speed  = 0.65 * (1.0 - ratio * 0.55)
-                    ser_Ardu.write(f"F {steer:.2f} {speed:.2f}\n".encode())
-                    print(f"VFH_FWD  갭={best['width']:.0f}mm@{best['center']:+.0f}도  "
-                          f"D{best['delta_deg']:.0f}도  근접={near_d:.0f}mm  "
-                          f"steer={steer:+.2f}  spd={speed:.2f}")
-
-                # ── P4: VFH 제자리 회전 — 갭이 후방 반구 ──────
-                elif best is not None and best['passable']:
-                    rot_dir = 1.0 if best['center'] > 0 else -1.0
-                    ser_Ardu.write(f"T {rot_dir:.2f}\n".encode())
-                    print(f"VFH_ROT  갭 후방({best['center']:+.0f}도) -> "
-                          f"제자리 회전 dir={rot_dir:+.0f}  폭={best['width']:.0f}mm")
-
-                # ── P5: 통과 가능 갭 없음 → 가장 열린 방향으로 저속 전진 ─
+                    extra_back = 3
+                    emg_cnt    = 0
+                    print("EXTENDED_BACK 시작! (3x) [긴급]")
                 else:
-                    open_g = max(gaps, key=lambda g: g['width']) if gaps else None
-                    steer  = max(-MAX_STEER, min(MAX_STEER,
-                                 open_g['center'] / 90.0 * MAX_STEER * 0.5)) if open_g else 0.0
-                    widest = open_g['width'] if open_g else 0.0
-                    ser_Ardu.write(f"F {steer:.2f} 0.20\n".encode())
-                    print(f"NO_GAP  최대폭={widest:.0f}mm  steer={steer:+.2f}")
+                    ser_Ardu.write(b"B 0.80\n")
+                    print(f"EMERGENCY! 근접={emg_near:.0f}mm ({emg_cnt}/6)")
 
-        # ── 버퍼 항상 초기화 ───────────────────────────────
-        scan_buf = []
+            # ── P3: VFH 전진 — 갭이 전방 반구(+-ROT_THRESH) ─
+            elif best is not None and best['passable'] and abs(best['center']) <= ROT_THRESH:
+                steer  = max(-MAX_STEER, min(MAX_STEER,
+                                best['center'] / 90.0 * MAX_STEER))
+                near_d = nearest_in_arc(hist, has_pt, best['center_cw'], arc_half=20)
+                ratio  = min(max((DETECT - near_d) / (DETECT - EMERGENCY), 0.0), 1.0)
+                speed  = 0.65 * (1.0 - ratio * 0.55)
+                ser_Ardu.write(f"F {steer:.2f} {speed:.2f}\n".encode())
+                print(f"VFH_FWD  갭={best['width']:.0f}mm@{best['center']:+.0f}도  "
+                        f"D{best['delta_deg']:.0f}도  근접={near_d:.0f}mm  "
+                        f"steer={steer:+.2f}  spd={speed:.2f}")
+
+            # ── P4: VFH 제자리 회전 — 갭이 후방 반구 ──────
+            elif best is not None and best['passable']:
+                rot_dir = 1.0 if best['center'] > 0 else -1.0
+                ser_Ardu.write(f"T {rot_dir:.2f}\n".encode())
+                print(f"VFH_ROT  갭 후방({best['center']:+.0f}도) -> "
+                        f"제자리 회전 dir={rot_dir:+.0f}  폭={best['width']:.0f}mm")
+
+            # ── P5: 통과 가능 갭 없음 → 가장 열린 방향으로 저속 전진 ─
+            else:
+                open_g = max(gaps, key=lambda g: g['width']) if gaps else None
+                steer  = max(-MAX_STEER, min(MAX_STEER,
+                                open_g['center'] / 90.0 * MAX_STEER * 0.5)) if open_g else 0.0
+                widest = open_g['width'] if open_g else 0.0
+                ser_Ardu.write(f"F {steer:.2f} 0.20\n".encode())
+                print(f"NO_GAP  최대폭={widest:.0f}mm  steer={steer:+.2f}")
+
+    # ── 버퍼 항상 초기화 ───────────────────────────────
+    scan_buf = []
