@@ -245,9 +245,9 @@ while True:
                     print("EXTENDED_BACK 시작! (3x) [긴급]")
                 else:
                     # [수정②] 비상 후진 중에도 통과 가능한 갭이 있으면 방향 기억
-                    if best is not None 및 best['passable']:
+                    if best is not None and best['passable']:
                         new_dir = 1.0 if best['center'] > 0 else -1.0
-                        if escape_dir == 0.0 또는 escape_hold == 0:
+                        if escape_dir == 0.0 or escape_hold == 0:
                             escape_dir  = new_dir
                             escape_hold = ESCAPE_HOLD_CYCLES
                             side = "우" if new_dir > 0 else "좌"
@@ -257,7 +257,7 @@ while True:
                     print(f"EMERGENCY! 근접={emg_near:.0f}mm ({emg_cnt}/6)")
 
             # ── P3: VFH 전진 회피 — 갭이 ±ROT_THRESH 이내 ─────────────
-            elif best is not None 및 best['passable'] 및 abs(best['center']) <= ROT_THRESH:
+            elif best is not None and best['passable'] and abs(best['center']) <= ROT_THRESH:
                 steer  = max(-MAX_STEER, min(MAX_STEER,
                              best['center'] / 90.0 * MAX_STEER))
                 near_d = nearest_in_arc(hist, has_pt, best['center_cw'], arc_half=20)
@@ -280,7 +280,7 @@ while True:
                       f"dir_mem={escape_dir:+.0f}({escape_hold})")
 
             # ── P4: VFH 제자리 회전 — 갭이 ±ROT_THRESH 초과 ──────────
-            elif best is not None 및 best['passable']:
+            elif best is not None and best['passable']:
                 rot_dir = 1.0 if best['center'] > 0 else -1.0
 
                 # [수정②] 제자리 회전 방향도 메모리에 저장
