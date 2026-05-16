@@ -226,12 +226,12 @@ while True:
 
     # [State C] 긴급 후진
     needs_emergency = (
-        front_d <= EMERGENCY 및
-        (best is None 또는 not best['passable'] 또는 abs(best['center']) > ROT_THRESH)
+        front_d <= EMERGENCY and
+        (best is None or not best['passable'] or abs(best['center']) > ROT_THRESH)
     )
     if needs_emergency:
         emg_cnt += 1
-        if best is not None 및 best['passable'] 및 escape_hold == 0:
+        if best is not None and best['passable'] and escape_hold == 0:
             escape_dir  = 1.0 if best['center'] > 0 else -1.0
             escape_hold = DIR_HOLD
         if emg_cnt >= 6:
@@ -247,7 +247,7 @@ while True:
     emg_cnt = 0
 
     # [State D] VFH 전진
-    if best is not None 및 best['passable'] 및 abs(best['center']) <= ROT_THRESH:
+    if best is not None and best['passable'] and abs(best['center']) <= ROT_THRESH:
         no_gap_cnt = 0
         steer_target = max(-MAX_STEER, min(MAX_STEER, best['center'] / 90.0 * MAX_STEER))
         steer = STEER_ALPHA * steer_target + (1.0 - STEER_ALPHA) * steer_prev
@@ -269,19 +269,19 @@ while True:
             escape_hold = DIR_HOLD
 
         ser_Ardu.write(f"F {steer:.2f} {speed:.2f}\n".encode())
-        if 지금 - last_log > 0.2:
+        if now - last_log > 0.2:
             print(f"FWD  갭@{best['center']:+.0f}°({best['width']:.0f})  front={front_d:.0f}  steer={steer:+.2f}")
             last_log = now
         continue
 
     # [State E] 제자리 회전
-    if best is not None 및 best['passable']:
+    if best is not None and best['passable']:
         rot_dir = 1.0 if best['center'] > 0 else -1.0
         escape_dir  = rot_dir
         escape_hold = DIR_HOLD
         steer_prev  = 0.0
         ser_Ardu.write(f"T {rot_dir:.2f}\n".encode())
-        if 지금 - last_log > 0.2:
+        if now - last_log > 0.2:
             print(f"ROT  갭@{best['center']:+.0f}°  폭={best['width']:.0f}")
             last_log = now
         continue
@@ -291,7 +291,7 @@ while True:
     steer_prev  = 0.0
     widest = max((g['width'] for g in gaps), default=0.0)
     ser_Ardu.write(b"B 0.70\n")
-    if 지금 - last_log > 0.2:
+    if now - last_log > 0.2:
         print(f"BACK  최대갭={widest:.0f} < {GAP_MIN_PASS:.0f}  ({no_gap_cnt})")
         last_log = now
     if no_gap_cnt >= 6:
