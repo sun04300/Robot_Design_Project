@@ -1,0 +1,388 @@
+import serial
+import time
+import math
+
+port_L    = "/dev/ttyUSB0"
+port_Ardu = "/dev/ttyS0"
+
+ser_L    = serial.Serial(port_L,    460800, timeout=1)
+ser_Ardu = serial.Serial(port_Ardu, 460800, timeout=1)
+
+ser_L.write(bytes([0xA5, 0x40]))
+time.sleep(1)
+ser_L.write(bytes([0xA5, 0x20]))
+
+
+# =================================================================
+#  VFH + BACKTRACK (경로 역추적) 장애물 회피
+#
+#  [상태 흐름]
+#
+#  NORMAL --[막힘 N회 연속]--> BACKTRACK
+#    |                              |
+#    |  VFH 항법 (조향/회전)        |  기록된 경로를 역순으로 재생
+#    |  경로 기록 (스택)            |  (F->B, T->T 반전)
+#    <------------------------------+
+#    NORMAL 복귀 (진입 방향 N사이클 제외)
+#
+#  [핵심 아이디어]
+#    NORMAL 중 실행한 VFH_FWD / VFH_ROT 명령을 스택에 쌓아 두고,
+#    막힌 공간으로 진입했다고 판단되면 스택을 역순으로 꺼내
+#    반전 명령을 실행 -> 출발 지점 근방으로 복귀.
+#
+#  [갭 폭 계산]
+#    gap_w = 2 x min(d_L, d_R) x sin(delta_deg / 2)
+# =================================================================
+
+# -- 전역 파라미터 -------------------------------------------------
+BIN_DEG      = 5.0
+N_BINS       = int(360 / BIN_DEG)   # 72개 빈
+ROBOT_WIDTH  = 200.0
+GAP_MARGIN   = 30.0
+GAP_MIN_PASS = ROBOT_WIDTH + GAP_MARGIN   # 230mm
+DETECT       = 500.0
+EMERGENCY    = 140.0
+MAX_STEER    = 0.85
+ROT_THRESH   = 75.0
+
+# -- 역추적 파라미터 -----------------------------------------------
+MAX_HISTORY   = 12      # 기록할 최대 명령 수 (깊이 제한)
+CORNER_THRESH = 4       # 이 사이클 연속 막히면 역추적 시작
+BT_CYCLES_FWD = 2       # VFH_FWD 1사이클을 되돌리는 후진 사이클 수
+BT_CYCLES_ROT = 1       # VFH_ROT 1사이클을 되돌리는 반전 회전 사이클 수
+EXCL_RANGE    = 40.0    # 역추적 완료 후 진입 방향 +- 이 각도 제외 (도)
+EXCL_CYCLES   = 8       # 제외 적용 사이클 수
+MIN_COUNT     = 4
+
+
+# -- VFH 헬퍼 함수 -------------------------------------------------
+
+def build_polar_hist(scan_buf):
+    """360도 극좌표 히스토그램. 각 빈에 최근접 장애물 거리 저장."""
+    hist   = [9999.0] * N_BINS
+    has_pt = [False]  * N_BINS
+    for a, d in scan_buf:
+        idx = int(a / BIN_DEG) % N_BINS
+        if d < hist[idx]:
+            hist[idx] = d
+            has_pt[idx] = True
+    return hist, has_pt
+
+
+def find_vfh_gaps(hist, has_pt, detect_dist, min_pass_mm):
+    """
+    히스토그램에서 통과 가능한 갭을 모두 탐색 (wraparound 처리).
+    0도/360도 경계: 배열 2배 확장 후 연속 개방 구간 탐색, 중복 제거.
+    gap_w = 2 x min(d_L, d_R) x sin(delta/2)
+    """
+    blocked = [has_pt[i] and hist[i] <= detect_dist for i in range(N_BINS)]
+
+    gaps = []
+    seen = set()
+    i = 0
+    while i < 2 * N_BINS:
+        bi = i % N_BINS
+        if not blocked[bi]:
+            j = i + 1
+            while j < i + N_BINS and not blocked[j % N_BINS]:
+                j += 1
+            span = j - i
+            if span < N_BINS:
+                center_cw = ((i + j) / 2.0 * BIN_DEG) % 360.0
+                ck = round(center_cw)
+                if ck not in seen:
+                    seen.add(ck)
+                    delta_deg = span * BIN_DEG
+                    d_L = hist[(i - 1) % N_BINS] if has_pt[(i - 1) % N_BINS] else detect_dist
+                    d_R = hist[j % N_BINS]        if has_pt[j % N_BINS]        else detect_dist
+                    d_L = min(d_L, detect_dist)
+                    d_R = min(d_R, detect_dist)
+                    d_ref = min(d_L, d_R)
+                    gap_w = 2.0 * d_ref * math.sin(math.radians(delta_deg / 2.0))
+                    center_s = center_cw if center_cw <= 180.0 else center_cw - 360.0
+                    gaps.append({
+                        'center'   : center_s,
+                        'center_cw': center_cw,
+                        'width'    : gap_w,
+                        'passable' : gap_w >= min_pass_mm,
+                        'd_left'   : d_L,
+                        'd_right'  : d_R,
+                        'delta_deg': delta_deg,
+                    })
+            i = j
+        else:
+            i += 1
+    return gaps
+
+
+def angle_diff(a, b):
+    """두 부호있는 각도(도) 사이의 최소 절대 차이 (0~180)."""
+    d = abs(a - b) % 360.0
+    return d if d <= 180.0 else 360.0 - d
+
+
+def select_best_gap(gaps, excl_dir=None, excl_range=EXCL_RANGE):
+    """
+    최적 갭 선택.
+    excl_dir 지정 시: 해당 방향 +- excl_range 내 갭을 우선 제외
+    (역추적 완료 후 직전 진입 방향 재진입 방지)
+    점수 = 폭 x 0.3 - |center| x 1.0
+    """
+    if not gaps:
+        return None
+
+    def score(g):
+        return g['width'] * 0.3 - abs(g['center'])
+
+    if excl_dir is not None:
+        non_excl_pass = [g for g in gaps
+                         if g['passable'] and angle_diff(g['center'], excl_dir) > excl_range]
+        if non_excl_pass:
+            return max(non_excl_pass, key=score)
+
+    passable = [g for g in gaps if g['passable']]
+    pool     = passable if passable else gaps
+    return max(pool, key=score)
+
+
+def nearest_in_arc(hist, has_pt, center_cw, arc_half=25):
+    """지정 방향 +- arc_half도 내 최근접 장애물 거리."""
+    center_bin = int(center_cw / BIN_DEG) % N_BINS
+    n_check    = max(1, int(arc_half / BIN_DEG))
+    min_d = 9999.0
+    for k in range(-n_check, n_check + 1):
+        idx = (center_bin + k) % N_BINS
+        if has_pt[idx] and hist[idx] < min_d:
+            min_d = hist[idx]
+    return min_d
+
+
+# -- 메인 루프 ------------------------------------------------------
+while True:
+    data = ser_L.read(5)
+    if len(data) != 5:
+        continue
+
+    s_flag     = data[0] & 0x01
+    s_inv_flag = (data[0] & 0x02) >> 1
+    if s_inv_flag != (1 - s_flag):
+        continue
+    if (data[1] & 0x01) != 1:
+        continue
+
+    quality  = data[0] >> 2
+    angle    = ((data[1] >> 1) | (data[2] << 7)) / 64.0
+    distance = (data[3] | (data[4] << 8)) / 4.0
+    if distance < 80:
+        continue
+
+    try:
+        _ready
+    except NameError:
+        import atexit
+        _ready    = True
+        scan_buf  = []
+        front_min = 9999.0;  front_cnt = 0
+        left_min  = 9999.0;  left_cnt  = 0
+        right_min = 9999.0;  right_cnt = 0
+        back_cnt   = 0
+        extra_back = 0
+
+        # -- 역추적 상태 변수 --------------------------------------
+        nav_state    = 'NORMAL'   # 'NORMAL' or 'BACKTRACK'
+        gap_history  = []         # 실행 명령 스택
+                                  # 각 항목: {rev:bytes, cyc:int, center:float(옵션)}
+        cornered_cnt = 0          # 연속 막힘 카운터
+        bt_stack     = []         # 역추적 실행 스택 (gap_history 역순 복사)
+        bt_cmd       = b""        # 현재 역추적 명령
+        bt_left      = 0          # 현재 명령 잔여 사이클
+        excl_dir     = None       # 복귀 후 제외할 진입 방향
+        excl_cnt     = 0          # 제외 적용 잔여 사이클
+
+        def _cleanup():
+            try:
+                ser_Ardu.write(b"S\n")
+                ser_L.write(bytes([0xA5, 0x25]))
+                time.sleep(0.1)
+                ser_L.close()
+                ser_Ardu.close()
+            except Exception:
+                pass
+        atexit.register(_cleanup)
+
+        print("=" * 65)
+        print("  VFH + 역추적(Backtrack) 장애물 회피  Ctrl+C 종료")
+        print(f"  감지:{int(DETECT)}mm  긴급:{int(EMERGENCY)}mm  "
+              f"최소통과폭:{int(GAP_MIN_PASS)}mm")
+        print(f"  역추적깊이:{MAX_HISTORY}  막힘감지:{CORNER_THRESH}회  "
+              f"제외범위:+-{EXCL_RANGE:.0f}도/{EXCL_CYCLES}사이클")
+        print("  ※ 아두이노에서 'T {steer}\\n' 제자리 회전 명령 지원 필요")
+        print("=" * 65)
+
+    if quality == 0:
+        continue
+
+    if (angle <= 20 or angle >= 340) and distance <= 355:
+        front_min = min(front_min, distance);  front_cnt += 1
+    elif (angle > 20 and angle < 55) and distance <= DETECT:
+        right_min = min(right_min, distance);  right_cnt += 1
+    elif (angle > 305 and angle < 340) and distance <= DETECT:
+        left_min  = min(left_min,  distance);  left_cnt  += 1
+
+    scan_buf.append((angle, distance))
+
+    if s_flag == 1 and len(scan_buf) > 15:
+
+        if front_cnt < MIN_COUNT: front_min = 9999.0
+        if left_cnt  < MIN_COUNT: left_min  = 9999.0
+        if right_cnt < MIN_COUNT: right_min = 9999.0
+
+        # 제외 카운터 감소
+        if excl_cnt > 0:
+            excl_cnt -= 1
+            if excl_cnt == 0:
+                excl_dir = None
+
+        # ============================================================
+        #  상태 1: BACKTRACK -- 기록된 경로를 역순으로 재생
+        # ============================================================
+        if nav_state == 'BACKTRACK':
+
+            # 역추적 중 긴급 장애물 감지 -> 일시 정지
+            any_emg = min(front_min, left_min, right_min) <= EMERGENCY
+            if any_emg:
+                ser_Ardu.write(b"S\n")
+                print(f"BT_PAUSE  장애물 F:{front_min:.0f} L:{left_min:.0f} R:{right_min:.0f}mm")
+
+            elif bt_left > 0:
+                ser_Ardu.write(bt_cmd)
+                bt_left -= 1
+                print(f"BT_EXEC  {bt_cmd.decode().strip()}  "
+                      f"잔여={bt_left}  [스택 {len(bt_stack)}남음]")
+
+            elif bt_stack:
+                step    = bt_stack.pop()
+                bt_cmd  = step['rev']
+                bt_left = step['cyc'] - 1
+                ser_Ardu.write(bt_cmd)
+                print(f"BT_NEXT  {bt_cmd.decode().strip()}  "
+                      f"cyc={step['cyc']}  [스택 {len(bt_stack)}남음]")
+
+            else:
+                # 역추적 완료 -> NORMAL 복귀
+                nav_state = 'NORMAL'
+                excl_cnt  = EXCL_CYCLES
+                ser_Ardu.write(b"S\n")
+                print("BACKTRACK 완료! NORMAL 복귀")
+                if excl_dir is not None:
+                    print(f"  진입방향 {excl_dir:+.0f}도 +-{EXCL_RANGE:.0f}도 "
+                          f"{EXCL_CYCLES}사이클 제외")
+
+        # ============================================================
+        #  상태 0: NORMAL -- VFH 항법 + 경로 기록
+        # ============================================================
+        else:
+            hist, has_pt = build_polar_hist(scan_buf)
+
+            # 완전 개방 공간 -> 직진
+            if not any(has_pt):
+                ser_Ardu.write(b"F 0.00 0.70\n")
+                cornered_cnt = 0
+
+            else:
+                gaps = find_vfh_gaps(hist, has_pt, DETECT, GAP_MIN_PASS)
+                best = select_best_gap(gaps,
+                                       excl_dir=excl_dir if excl_cnt > 0 else None)
+
+                # P1: 확장 후진
+                if extra_back > 0:
+                    ser_Ardu.write(b"B 0.80\n")
+                    extra_back -= 1
+                    print(f"EXTENDED_BACK 잔여 {extra_back}사이클")
+
+                # P2: 긴급 후진 + 전방 탈출 불가
+                elif (min(front_min, left_min, right_min) <= EMERGENCY and
+                      (best is None or not best['passable'] or
+                       abs(best['center']) > ROT_THRESH)):
+                    back_cnt += 1
+                    if back_cnt >= 6:
+                        ser_Ardu.write(b"B 0.90\n")
+                        extra_back = 3
+                        back_cnt   = 0
+                        print("EXTENDED_BACK 시작! (3x)")
+                    else:
+                        ser_Ardu.write(b"B 0.90\n")
+                        print(f"EMERGENCY! F:{front_min:.0f} L:{left_min:.0f} "
+                              f"R:{right_min:.0f}mm ({back_cnt}/6)")
+                    # 긴급 후진은 경로로 기록하지 않음
+
+                # P3: VFH 전진 -- 경로 기록 O
+                elif (best is not None and best['passable'] and
+                      abs(best['center']) <= ROT_THRESH):
+                    steer  = max(-MAX_STEER, min(MAX_STEER,
+                                 best['center'] / 90.0 * MAX_STEER))
+                    near_d = nearest_in_arc(hist, has_pt, best['center_cw'], 20)
+                    ratio  = min(max((DETECT - near_d) / (DETECT - EMERGENCY), 0.0), 1.0)
+                    speed  = 0.70 * (1.0 - ratio * 0.55)
+
+                    ser_Ardu.write(f"F {steer:.2f} {speed:.2f}\n".encode())
+                    print(f"VFH_FWD  갭={best['width']:.0f}mm@{best['center']:+.0f}도  "
+                          f"steer={steer:+.2f}  spd={speed:.2f}")
+
+                    # 역추적용 기록: 전진 -> 역방향은 후진
+                    gap_history.append({'rev': f"B {speed:.2f}\n".encode(),
+                                        'cyc': BT_CYCLES_FWD,
+                                        'center': best['center']})
+                    if len(gap_history) > MAX_HISTORY:
+                        gap_history.pop(0)
+                    cornered_cnt = 0
+                    back_cnt     = 0
+
+                # P4: VFH 제자리 회전 -- 경로 기록 O
+                elif best is not None and best['passable']:
+                    rot_dir = 1.0 if best['center'] > 0 else -1.0
+                    ser_Ardu.write(f"T {rot_dir:.2f}\n".encode())
+                    print(f"VFH_ROT  갭 후방({best['center']:+.0f}도) -> "
+                          f"제자리 회전 dir={rot_dir:+.0f}")
+
+                    # 역추적용 기록: 회전 -> 역방향은 반대 회전
+                    gap_history.append({'rev': f"T {-rot_dir:.2f}\n".encode(),
+                                        'cyc': BT_CYCLES_ROT})
+                    if len(gap_history) > MAX_HISTORY:
+                        gap_history.pop(0)
+                    cornered_cnt = 0
+
+                # P5: 통과 가능한 갭 없음 -- 막힘 카운트
+                else:
+                    cornered_cnt += 1
+                    ser_Ardu.write(b"B 0.90\n")
+                    widest = max((g['width'] for g in gaps), default=0.0)
+                    print(f"VFH_BACK  통과 갭 없음 (최대폭={widest:.0f}mm)  "
+                          f"막힘={cornered_cnt}/{CORNER_THRESH}")
+
+                    # 역추적 진입 조건 충족
+                    if cornered_cnt >= CORNER_THRESH and gap_history:
+                        # 첫 번째 전진 명령의 방향 -> 복귀 후 제외 대상
+                        excl_dir = next(
+                            (h['center'] for h in gap_history if 'center' in h),
+                            None
+                        )
+                        bt_stack     = list(reversed(gap_history))
+                        gap_history  = []
+                        bt_cmd       = b""
+                        bt_left      = 0
+                        nav_state    = 'BACKTRACK'
+                        cornered_cnt = 0
+                        print(f"DEAD END 확정! 역추적 시작 {len(bt_stack)}단계 역재생")
+                        if excl_dir is not None:
+                            print(f"  복귀 후 방향 {excl_dir:+.0f}도 제외 예정")
+
+                    if back_cnt >= 6:
+                        extra_back = 3
+                        back_cnt   = 0
+
+        # -- 버퍼 초기화 --------------------------------------------
+        scan_buf  = []
+        front_min = 9999.0;  front_cnt = 0
+        left_min  = 9999.0;  left_cnt  = 0
+        right_min = 9999.0;  right_cnt = 0
