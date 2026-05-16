@@ -44,8 +44,8 @@ N_BINS       = int(360 / BIN_DEG)       # 72개 빈
 ROBOT_WIDTH  = 200.0                    # 차량 폭 (mm)
 GAP_MARGIN   = 5.0                      # 통과 안전 마진 (mm)
 GAP_MIN_PASS = ROBOT_WIDTH + GAP_MARGIN # 최소 통과 가능 폭: 205mm
-DETECT       = 700.0    # [C] 500→750: 조기 감지로 긴급 상황 예방
-EMERGENCY    = 160.0    # [C] 135→160: 벽 타기 진입 여유 확보
+DETECT       = 400.0    # [C] 500→750: 조기 감지로 긴급 상황 예방
+EMERGENCY    = 142.0    # [C] 135→160: 벽 타기 진입 여유 확보
 MAX_STEER    = 0.85
 ROT_THRESH   = 100.0     # [C] 75→90: 전진 허용 범위 확대 (후진 대신 조향)
 
@@ -121,7 +121,7 @@ def select_best_gap(gaps):
     if forward_pool:
         # 전방에 길이 있으면, 그 중에서 가장 정면에 가깝고(Angle Penalty 강화) 넓은 길 선택
         # abs(g['center'])에 더 큰 가중치(예: 2.0~3.0)를 곱해 정면 위주로 판단하게 합니다.
-        return max(forward_pool, key=lambda g: g['width'] * 0.3 - abs(g['center']) * 2.5)
+        return max(forward_pool, key=lambda g: g['width'] * 0.3 - abs(g['center']) * 2.0)
     else:
         # 전방이 다 막혔을 때만 측후방을 돌아보는(VFH_TURN) 갭을 선택
         return max(passable, key=lambda g: g['width'])
