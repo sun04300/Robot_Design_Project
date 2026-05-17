@@ -98,13 +98,6 @@ def find_vfh_gaps(hist, has_pt, detect_dist, min_pass_mm):
     """
     blocked = [has_pt[i] and hist[i] <= detect_dist for i in range(N_BINS)]
 
-    # 단일 노이즈 빈 제거: 양쪽이 모두 열린 단일 blocked 빈은 노이즈로 무시
-    smoothed = blocked[:]
-    for i in range(N_BINS):
-        if blocked[i] and not blocked[(i - 1) % N_BINS] and not blocked[(i + 1) % N_BINS]:
-            smoothed[i] = False
-    blocked = smoothed
-
     gaps = []
     seen = set()
     i = 0
@@ -150,16 +143,17 @@ def find_vfh_gaps(hist, has_pt, detect_dist, min_pass_mm):
     return gaps
 
 
-def select_best_gap(gaps, min_pass_mm=GAP_MIN_PASS):
+def select_best_gap(gaps):
     """
     최적 갭 선택.
-    min_pass_mm 이상인 갭을 우선 풀로 사용, 없으면 전체 갭에서 선택.
+    통과 가능한 갭 우선, 동점 시 전방(0도)에 가깝고 넓은 것 선호.
+
     점수 = 폭(mm) x 0.25 - |center|(도) x 1.8
-    -> 폭이 넓고 전방에 가까운 갭 선호. 1도당 약 1.8mm 패널티로 ±45도 정도까지 허용.
+        -> 전방에서 1도 멀어질 때마다 폭 1.8mm의 이점이 상쇄됨.
     """
     if not gaps:
         return None
-    passable = [g for g in gaps if g['width'] >= min_pass_mm]
+    passable = [g for g in gaps if g['passable']]
     pool     = passable if passable else gaps
     return max(pool, key=lambda g: g['width'] * 0.25 - abs(g['center']) * 1.8)
 
@@ -245,7 +239,7 @@ while True:
 
         else:
             gaps = find_vfh_gaps(hist, has_pt, DETECT, GAP_MIN_PASS)
-            best = select_best_gap(gaps, GAP_MIN_PASS)
+            best = select_best_gap(gaps)
 
             # ── P1: 확장 후진 진행 중 ─────────────────────
             if extra_back > 0:
@@ -271,9 +265,7 @@ while True:
             elif best is not None and best['passable'] and abs(best['center']) <= ROT_THRESH:
                 steer  = max(-MAX_STEER, min(MAX_STEER,
                                 best['center'] / 90.0 * MAX_STEER))
-                # 갭 중심 방향에서 ±30도 내의 최근접 장애물 거리
                 near_d = nearest_in_arc(hist, has_pt, best['center_cw'], arc_half=30)
-                # DETECT에서 EMERGENCY+5까지 선형적으로 감속, 그 이하에서는 0.65 고정
                 ratio  = min(max((DETECT - near_d) / (DETECT - EMERGENCY+5), 0.0), 1.0)
                 speed  = 0.65 * (1.0 - ratio * 0.55)
                 ser_Ardu.write(f"F {steer:.2f} {speed:.2f}\n".encode())
@@ -288,26 +280,14 @@ while True:
                 print(f"VFH_ROT  갭 후방({best['center']:+.0f}도) -> "
                         f"제자리 회전 dir={rot_dir:+.0f}  폭={best['width']:.0f}mm")
 
-            # ── P5: 통과 가능 갭 없음 → 전방 45도 이내에서 가장 열린 방향으로 저속 전진 ─
+            # ── P5: 통과 가능 갭 없음 → 가장 열린 방향으로 저속 전진 ─
             else:
-                FRONT_ARC = 60.0
-                if gaps:
-                    front_gaps = [g for g in gaps if abs(g['center']) <= FRONT_ARC]
-                    if front_gaps:
-                        # 전방 45도 이내 갭 중 가장 넓은 것 선택
-                        open_g     = max(front_gaps, key=lambda g: g['width'])
-                        target_dir = open_g['center']
-                    else:
-                        # 전방 45도 내 갭 없음 → 가장 넓은 갭 방향을 ±45도로 클램핑
-                        open_g     = max(gaps, key=lambda g: g['width'])
-                        target_dir = max(-FRONT_ARC, min(FRONT_ARC, open_g['center']))
-                    widest = open_g['width']
-                else:
-                    target_dir = 0.0
-                    widest     = 0.0
-                steer = max(-MAX_STEER, min(MAX_STEER, target_dir / 90.0 * MAX_STEER * 0.5))
+                open_g = max(gaps, key=lambda g: g['width']) if gaps else None
+                steer  = max(-MAX_STEER, min(MAX_STEER,
+                                open_g['center'] / 90.0 * MAX_STEER * 0.5)) if open_g else 0.0
+                widest = open_g['width'] if open_g else 0.0
                 ser_Ardu.write(f"F {steer:.2f} 0.20\n".encode())
-                print(f"NO_GAP  최대폭={widest:.0f}mm  target={target_dir:+.0f}도  steer={steer:+.2f}")
+                print(f"NO_GAP  최대폭={widest:.0f}mm  steer={steer:+.2f}")
 
     else:
         # ── 회전 중간 패킷: 버퍼 초기화만 ─────────────────────
