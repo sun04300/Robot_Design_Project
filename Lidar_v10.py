@@ -25,9 +25,9 @@ GAP_MIN_PASS = ROBOT_W + BODY_MARGIN * 2   # 260mm (원본 155mm에서 변경)
 #              주석에만 230mm로 표기돼 있어 실제값과 불일치
 
 DETECT       = 550.0               # 감지 거리 (mm)
-EMERGENCY    = 120.0               # 즉시 대응 거리 (mm)
+EMERGENCY    = 150.0               # 즉시 대응 거리 (mm)
 P4_DIST      = 200.0               # 제자리 회전 발동 거리 (mm)
-MAX_STEER    = 0.7
+MAX_STEER    = 0.89
 ROT_THRESH   = 110.0
 
 
@@ -183,7 +183,7 @@ while True:
     if s_flag == 1:
         try:
             hist, has_pt = build_polar_hist(scan_buf)
-            emg_near = nearest_in_arc(hist, has_pt, 0.0, arc_half=75)
+            emg_near = nearest_in_arc(hist, has_pt, 0.0, arc_half=60)
 
             if not any(has_pt):
                 ser_Ardu.write(b"F 0.00 0.70\n")
@@ -196,7 +196,7 @@ while True:
                 if best is not None and best['passable'] and abs(best['center']) <= ROT_THRESH:
                     d_L, d_R  = best['d_L'], best['d_R']
                     imbalance = (d_R - d_L) / (d_L + d_R + 1e-9)
-                    bias      = imbalance * (best['delta_deg'] / 2.9)
+                    bias      = imbalance * (best['delta_deg'] / 3.5)
 
                     lat_L = nearest_in_arc(hist, has_pt, 270.0, arc_half=45)
                     lat_R = nearest_in_arc(hist, has_pt,  90.0, arc_half=45)
