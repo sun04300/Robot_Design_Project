@@ -94,7 +94,7 @@ def select_best_gap(gaps, min_pass_mm=GAP_MIN_PASS):
         return None
     passable = [g for g in gaps if g['width'] >= min_pass_mm]
     pool     = passable if passable else gaps
-    return max(pool, key=lambda g: g['width'] * 0.6 - abs(g['center']) * 1.2)
+    return max(pool, key=lambda g: g['width'] * 0.35 - abs(g['center']) *1.6)
 
 
 def nearest_in_arc(hist, has_pt, center_cw, arc_half=25):
