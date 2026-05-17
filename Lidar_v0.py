@@ -19,7 +19,7 @@ N_BINS       = int(360 / BIN_DEG)   # 90개 빈
 
 # ★ 수정1: 로봇 실측값을 반드시 입력할 것
 ROBOT_W      = 200.0               # 로봇 폭 (mm) — 실측 입력 필요
-BODY_MARGIN  = 30.0                # 양쪽 최소 여유 (mm)
+BODY_MARGIN  = 25.0                # 양쪽 최소 여유 (mm)
 GAP_MIN_PASS = ROBOT_W + BODY_MARGIN * 2   # 260mm (원본 155mm에서 변경)
 # ★ 원본 버그: GAP_MIN(145) + GAP_MARGIN(10) = 155mm (≪ 로봇폭 200mm)
 #              주석에만 230mm로 표기돼 있어 실제값과 불일치
