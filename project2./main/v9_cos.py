@@ -232,7 +232,7 @@ while True:
     if s_flag == 1: # and len(scan_buf) > 15: --- IGNORE ---
         # ── VFH 분석 ───────────────────────────────────────
         hist, has_pt = build_polar_hist(scan_buf)
-        emg_near = nearest_in_arc(hist, has_pt, 0.0, arc_half=70)
+        emg_near = nearest_in_arc(hist, has_pt, 0.0, arc_half=80)
 
         if not any(has_pt):
             ser_Ardu.write(b"F 0.00 0.70\n")
@@ -296,4 +296,4 @@ while True:
         # VFH 판단은 s_flag=1인 패킷에서만 수행 
         # → 회전 중간 패킷에서는 버퍼 유지하거나 초기화 선택 가능
     # ── 버퍼 항상 초기화 ───────────────────────────────
-    scan_buf = []
+        scan_buf = []
