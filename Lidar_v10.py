@@ -25,9 +25,9 @@ GAP_MIN_PASS = ROBOT_W + BODY_MARGIN * 2   # 260mm (원본 155mm에서 변경)
 #              주석에만 230mm로 표기돼 있어 실제값과 불일치
 
 DETECT       = 550.0               # 감지 거리 (mm)
-EMERGENCY    = 150.0               # 즉시 대응 거리 (mm)
+EMERGENCY    = 120.0               # 즉시 대응 거리 (mm)
 P4_DIST      = 200.0               # 제자리 회전 발동 거리 (mm)
-MAX_STEER    = 0.89
+MAX_STEER    = 0.7
 ROT_THRESH   = 110.0
 
 
