@@ -196,6 +196,7 @@ void loop()
         else
         {
             rxBuf += c;
+            if (rxBuf.length() > 32) rxBuf = "";  // 쓰레기 누적 방어
         }
     }
 }
