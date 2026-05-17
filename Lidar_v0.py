@@ -147,8 +147,6 @@ while True:
     quality  = data[0] >> 2
     angle    = ((data[1] >> 1) | (data[2] << 7)) / 64.0
     distance = (data[3] | (data[4] << 8)) / 4.0
-    if distance < 80:
-        continue
 
     try:
         _ready
